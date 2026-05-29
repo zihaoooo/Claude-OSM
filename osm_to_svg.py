@@ -45,6 +45,8 @@ STYLE = {
     "rail":       {"fill": "none", "stroke": "#111111", "stroke_width": 0.8,
                    "stroke_dasharray": "4 3"},
     "north":      {"fill": "#111111", "stroke": "#111111", "stroke_width": 1.5},
+    "scalebar":   {"fill": "#111111", "stroke": "none",
+                   "font_family": "sans-serif"},
 }
 
 # OSM tag filters per layer. Add/remove tags to taste.
@@ -383,7 +385,7 @@ def layer_group(name, gdf, proj, css_class):
 
 
 def north_arrow_group(proj, angle):
-    """A small north indicator, tilted to true north after rotation.
+    """A small north indicator, tilted to true north, in the bottom-left corner.
 
     The world was rotated CCW by `angle`, so true north (metric +y) now points
     at the unit page vector (-sin a, -cos a) (page y points down).
@@ -391,21 +393,53 @@ def north_arrow_group(proj, angle):
     a = math.radians(angle)
     ux, uy = -math.sin(a), -math.cos(a)            # page-space north unit
     px_, py_ = -uy, ux                             # perpendicular
-    L = 46
-    bx, by = proj.page_w - 60, 70                  # base, top-right corner
-    tx, ty = bx + L * ux, by + L * uy              # tip
+    L = 38
+    bx, by = MARGIN + 12, proj.page_h - MARGIN - 14   # base, bottom-left
+    tx, ty = bx + L * ux, by + L * uy                 # tip
     # Arrowhead triangle.
-    h, w = 13, 5
+    h, w = 11, 4.5
     a1 = (tx - h * ux + w * px_, ty - h * uy + w * py_)
     a2 = (tx - h * ux - w * px_, ty - h * uy - w * py_)
-    lx, ly = tx + 13 * ux, ty + 13 * uy            # label just past the tip
+    lx, ly = tx + 11 * ux, ty + 11 * uy + 4        # label just past the tip
     out = ['  <g id="north" class="north">']
     out.append(f'    <line x1="{bx:.2f}" y1="{by:.2f}" '
                f'x2="{tx:.2f}" y2="{ty:.2f}"/>')
     out.append(f'    <polygon points="{tx:.2f},{ty:.2f} '
                f'{a1[0]:.2f},{a1[1]:.2f} {a2[0]:.2f},{a2[1]:.2f}"/>')
     out.append(f'    <text x="{lx:.2f}" y="{ly:.2f}" '
-               f'text-anchor="middle" font-size="14" stroke="none">N</text>')
+               f'text-anchor="middle" font-size="13" stroke="none">N</text>')
+    out.append("  </g>")
+    return "\n".join(out)
+
+
+def _nice_length(scale, target_px=150):
+    """Pick a round distance (m) whose pixel length is near target_px."""
+    raw = target_px / scale                          # meters at target width
+    mag = 10 ** math.floor(math.log10(raw))
+    for f in (1, 2, 5, 10):
+        if f * mag >= raw:
+            return f * mag
+    return 10 * mag
+
+
+def scalebar_group(proj):
+    """A two-segment scale bar in the bottom-left, sitting beside the arrow."""
+    nice = _nice_length(proj.scale)
+    L = nice * proj.scale                            # bar length in px
+    half = L / 2
+    x0 = MARGIN + 46                                 # right of the north arrow
+    y1 = proj.page_h - MARGIN - 18                   # bar top
+    h = 6
+    fmt = (lambda m: f"{m/1000:g} km") if nice >= 1000 else (lambda m: f"{m:g}")
+    out = ['  <g id="scalebar" class="scalebar">']
+    out.append(f'    <rect x="{x0:.2f}" y="{y1:.2f}" width="{L:.2f}" '
+               f'height="{h}" fill="none" stroke="#111" stroke-width="1"/>')
+    out.append(f'    <rect x="{x0:.2f}" y="{y1:.2f}" width="{half:.2f}" '
+               f'height="{h}" fill="#111" stroke="none"/>')
+    ty = y1 + h + 12
+    for frac, txt in ((0.0, "0"), (0.5, fmt(nice / 2)), (1.0, f"{fmt(nice)} m")):
+        out.append(f'    <text x="{x0 + L*frac:.2f}" y="{ty}" '
+                   f'text-anchor="middle" font-size="11" stroke="none">{txt}</text>')
     out.append("  </g>")
     return "\n".join(out)
 
@@ -438,6 +472,7 @@ def build_svg(proj, north_angle=None):
 
     if north_angle is not None:
         svg.append(north_arrow_group(proj, north_angle))
+        svg.append(scalebar_group(proj))
 
     svg.append("</svg>")
     return "\n".join(svg)
