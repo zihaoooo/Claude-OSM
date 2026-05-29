@@ -37,8 +37,9 @@ CRS_METRIC = "EPSG:32618"   # UTM zone 18N -- true meters for NYC
 # Stroke widths are in px (page space), so they stay crisp at any map scale.
 STYLE = {
     "background": {"fill": "#ffffff"},
-    "water":      {"fill": "#e8eef2", "stroke": "none"},
-    "green":      {"fill": "#000000", "fill_opacity": 0.04, "stroke": "none"},
+    "water":      {"fill": "#cfe0ea", "stroke": "none"},
+    "green":      {"fill": "#eaf2e6", "stroke": "none"},
+    "dots_green": {"fill": "#5b8a5b", "stroke": "none"},
     "buildings":  {"fill": "#111111", "stroke": "none"},
     "roads_major":{"fill": "none", "stroke": "#111111", "stroke_width": 1.4},
     "roads_minor":{"fill": "none", "stroke": "#999999", "stroke_width": 0.5},
@@ -60,6 +61,12 @@ TAGS = {
 # Road classes split into major/minor by OSM highway value.
 MAJOR_ROADS = {"motorway", "trunk", "primary", "secondary", "tertiary",
                "motorway_link", "trunk_link", "primary_link"}
+
+# Halftone dot-fill per layer. spacing/radius are in px (page space), so the
+# texture density stays constant regardless of map scale.
+HALFTONE = {
+    "green": {"spacing": 7, "radius": 1.0},
+}
 
 
 # ----------------------------------------------------------------------------
@@ -370,6 +377,49 @@ def css_block():
     return "\n".join(lines)
 
 
+def _page_polygon(poly, proj):
+    """Shapely Polygon (with holes) reprojected into SVG page coordinates."""
+    shell = [proj.xy(x, y) for x, y in poly.exterior.coords]
+    holes = [[proj.xy(x, y) for x, y in r.coords] for r in poly.interiors]
+    return Polygon(shell, holes)
+
+
+def halftone_group(name, gdf, proj, spacing, radius):
+    """Fill each polygon with a clipped grid of <circle>s (a halftone texture).
+
+    The grid is sampled in page space and anchored to a global origin so dots
+    line up across separate polygons; points outside the polygon are dropped.
+    """
+    from shapely.prepared import prep
+    if gdf is None or not len(gdf):
+        return f'  <g id="dots_{name}" class="dots_{name}"><!-- empty --></g>'
+    out = [f'  <g id="dots_{name}" class="dots_{name}">']
+    for geom in gdf.geometry:
+        if geom is None or geom.is_empty:
+            continue
+        polys = (geom.geoms if geom.geom_type in ("MultiPolygon", "GeometryCollection")
+                 else [geom])
+        for poly in polys:
+            if poly.geom_type != "Polygon":
+                continue
+            pp = _page_polygon(poly, proj)
+            if pp.is_empty:
+                continue
+            pr = prep(pp)
+            minx, miny, maxx, maxy = pp.bounds
+            y = math.floor(miny / spacing) * spacing
+            while y <= maxy:
+                x = math.floor(minx / spacing) * spacing
+                while x <= maxx:
+                    if pr.contains(Point(x, y)):
+                        out.append(f'    <circle cx="{x:.2f}" cy="{y:.2f}" '
+                                   f'r="{radius}"/>')
+                    x += spacing
+                y += spacing
+    out.append("  </g>")
+    return "\n".join(out)
+
+
 def layer_group(name, gdf, proj, css_class):
     """Render one GeoDataFrame as a <g class=...> of <path>s."""
     if gdf is None or not len(gdf):
@@ -461,6 +511,8 @@ def build_svg(proj, north_angle=None):
     # Draw order: water -> green -> buildings -> minor roads -> major roads.
     svg.append(layer_group("water", L.get("water"), proj, "water"))
     svg.append(layer_group("green", L.get("green"), proj, "green"))
+    if "green" in HALFTONE and L.get("green") is not None:
+        svg.append(halftone_group("green", L.get("green"), proj, **HALFTONE["green"]))
     svg.append(layer_group("buildings", L.get("buildings"), proj, "buildings"))
 
     # Split roads by class.
