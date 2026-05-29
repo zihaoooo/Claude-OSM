@@ -15,12 +15,13 @@ There is intentionally **no committed virtualenv** — it's platform-specific.
 If `.venv/` is missing, create it and install dependencies first:
 
 - **Windows:** `py -m venv .venv` then
-  `.venv\Scripts\python.exe -m pip install osmnx geopandas shapely`
+  `.venv\Scripts\python.exe -m pip install -r requirements.txt`
 - **macOS / Linux:** `python3 -m venv .venv` then
-  `.venv/bin/python -m pip install osmnx geopandas shapely`
+  `.venv/bin/python -m pip install -r requirements.txt`
 
-Dependencies: **osmnx 2.x**, geopandas, shapely (Python 3.10+). `matplotlib` is
-optional, only for quick geometry-only previews.
+Dependencies are pinned in `requirements.txt` (osmnx 2.x, geopandas, shapely,
+numpy; Python 3.10+). `matplotlib` is optional, only for quick geometry-only
+previews.
 
 Always run the pipeline through the venv interpreter:
 - Windows: `.venv\Scripts\python.exe osm_to_svg.py ...`
