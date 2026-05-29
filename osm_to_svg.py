@@ -25,54 +25,17 @@ from shapely.geometry import (
 from shapely.affinity import rotate as shp_rotate
 
 # ----------------------------------------------------------------------------
-# 1. CONFIG -- the "design tokens" for the map. Edit freely.
+# 1. CONFIG
+#   Design tokens (palette, OSM tags, textures) live in style.py so palettes
+#   can be swapped. Pipeline geometry stays here.
 # ----------------------------------------------------------------------------
+
+from style import STYLE, TAGS, MAJOR_ROADS, HALFTONE, HATCH
 
 PAGE_W = 1200          # SVG width in px (fallback place+dist mode)
 LONG_SIDE_PX = 1400    # frame mode: fit the longer page dimension to this
 MARGIN = 40            # inner margin in px
 CRS_METRIC = "EPSG:32618"   # UTM zone 18N -- true meters for NYC
-
-# Per-layer style. These become CSS classes in the output <style> block.
-# Stroke widths are in px (page space), so they stay crisp at any map scale.
-STYLE = {
-    "background": {"fill": "#ffffff"},
-    "water":      {"fill": "#cfe0ea", "stroke": "none"},
-    "green":      {"fill": "#eaf2e6", "stroke": "none"},
-    "dots_green": {"fill": "#5b8a5b", "stroke": "none"},
-    "hatch_water":{"fill": "none", "stroke": "#5a9bc4", "stroke_width": 0.6},
-    "buildings":  {"fill": "#111111", "stroke": "none"},
-    "roads_major":{"fill": "none", "stroke": "#111111", "stroke_width": 1.4},
-    "roads_minor":{"fill": "none", "stroke": "#999999", "stroke_width": 0.5},
-    "rail":       {"fill": "none", "stroke": "#111111", "stroke_width": 0.8,
-                   "stroke_dasharray": "4 3"},
-    "north":      {"fill": "#111111", "stroke": "#111111", "stroke_width": 1.5},
-    "scalebar":   {"fill": "#111111", "stroke": "none",
-                   "font_family": "sans-serif"},
-}
-
-# OSM tag filters per layer. Add/remove tags to taste.
-TAGS = {
-    "water":     {"natural": ["water"], "waterway": True},
-    "green":     {"leisure": ["park", "garden"], "landuse": ["forest", "grass",
-                  "meadow", "recreation_ground"], "natural": ["wood"]},
-    "buildings": {"building": True},
-}
-
-# Road classes split into major/minor by OSM highway value.
-MAJOR_ROADS = {"motorway", "trunk", "primary", "secondary", "tertiary",
-               "motorway_link", "trunk_link", "primary_link"}
-
-# Halftone dot-fill per layer. spacing/radius are in px (page space), so the
-# texture density stays constant regardless of map scale.
-HALFTONE = {
-    "green": {"spacing": 7, "radius": 1.0},
-}
-
-# Diagonal-hatch per layer. angle in degrees (from horizontal), spacing in px.
-HATCH = {
-    "water": {"angle": 45, "spacing": 5},
-}
 
 
 # ----------------------------------------------------------------------------
