@@ -40,6 +40,7 @@ STYLE = {
     "water":      {"fill": "#cfe0ea", "stroke": "none"},
     "green":      {"fill": "#eaf2e6", "stroke": "none"},
     "dots_green": {"fill": "#5b8a5b", "stroke": "none"},
+    "hatch_water":{"fill": "none", "stroke": "#5a9bc4", "stroke_width": 0.6},
     "buildings":  {"fill": "#111111", "stroke": "none"},
     "roads_major":{"fill": "none", "stroke": "#111111", "stroke_width": 1.4},
     "roads_minor":{"fill": "none", "stroke": "#999999", "stroke_width": 0.5},
@@ -66,6 +67,11 @@ MAJOR_ROADS = {"motorway", "trunk", "primary", "secondary", "tertiary",
 # texture density stays constant regardless of map scale.
 HALFTONE = {
     "green": {"spacing": 7, "radius": 1.0},
+}
+
+# Diagonal-hatch per layer. angle in degrees (from horizontal), spacing in px.
+HATCH = {
+    "water": {"angle": 45, "spacing": 5},
 }
 
 
@@ -420,6 +426,61 @@ def halftone_group(name, gdf, proj, spacing, radius):
     return "\n".join(out)
 
 
+def _emit_clipped_segments(geom, out):
+    """Append <line>s for each straight piece of a clipped hatch intersection."""
+    gt = geom.geom_type
+    if gt == "LineString":
+        if geom.is_empty:
+            return
+        (x1, y1), (x2, y2) = geom.coords[0], geom.coords[-1]
+        out.append(f'    <line x1="{x1:.2f}" y1="{y1:.2f}" '
+                   f'x2="{x2:.2f}" y2="{y2:.2f}"/>')
+    elif gt in ("MultiLineString", "GeometryCollection"):
+        for g in geom.geoms:
+            _emit_clipped_segments(g, out)
+
+
+def hatch_group(name, gdf, proj, angle, spacing):
+    """Fill each polygon with parallel lines at `angle`, clipped to the polygon.
+
+    Lines are generated in page space and clipped via shapely intersection (no
+    SVG <pattern> defs), so every stroke is a flat, editable <line>. Offsets are
+    anchored to a global origin so hatching aligns across polygons.
+    """
+    if gdf is None or not len(gdf):
+        return f'  <g id="hatch_{name}" class="hatch_{name}"><!-- empty --></g>'
+    th = math.radians(angle)
+    dx, dy = math.cos(th), math.sin(th)        # line direction
+    nx, ny = -math.sin(th), math.cos(th)       # normal (offset axis)
+    out = [f'  <g id="hatch_{name}" class="hatch_{name}">']
+    for geom in gdf.geometry:
+        if geom is None or geom.is_empty:
+            continue
+        polys = (geom.geoms if geom.geom_type in ("MultiPolygon", "GeometryCollection")
+                 else [geom])
+        for poly in polys:
+            if poly.geom_type != "Polygon":
+                continue
+            pp = _page_polygon(poly, proj)
+            if pp.is_empty:
+                continue
+            minx, miny, maxx, maxy = pp.bounds
+            cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+            corners = [(minx, miny), (minx, maxy), (maxx, miny), (maxx, maxy)]
+            offs = [nx * x + ny * y for x, y in corners]
+            D = math.hypot(maxx - minx, maxy - miny)
+            c = math.floor(min(offs) / spacing) * spacing
+            while c <= max(offs):
+                t0 = c - (nx * cx + ny * cy)       # shift center onto this line
+                x0, y0 = cx + t0 * nx, cy + t0 * ny
+                seg = LineString([(x0 - D * dx, y0 - D * dy),
+                                  (x0 + D * dx, y0 + D * dy)])
+                _emit_clipped_segments(pp.intersection(seg), out)
+                c += spacing
+    out.append("  </g>")
+    return "\n".join(out)
+
+
 def layer_group(name, gdf, proj, css_class):
     """Render one GeoDataFrame as a <g class=...> of <path>s."""
     if gdf is None or not len(gdf):
@@ -510,6 +571,8 @@ def build_svg(proj, north_angle=None):
 
     # Draw order: water -> green -> buildings -> minor roads -> major roads.
     svg.append(layer_group("water", L.get("water"), proj, "water"))
+    if "water" in HATCH and L.get("water") is not None:
+        svg.append(hatch_group("water", L.get("water"), proj, **HATCH["water"]))
     svg.append(layer_group("green", L.get("green"), proj, "green"))
     if "green" in HALFTONE and L.get("green") is not None:
         svg.append(halftone_group("green", L.get("green"), proj, **HALFTONE["green"]))
