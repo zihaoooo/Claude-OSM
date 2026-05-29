@@ -2,3 +2,4 @@
 *.svg
 __pycache__/
 cache/
+preview.png
