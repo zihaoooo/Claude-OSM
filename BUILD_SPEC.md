@@ -13,8 +13,8 @@ halftone-dot land-use zones, diagonal-hatch corridors, clean road hierarchy.
 - Windows: run the venv interpreter directly — `.venv\Scripts\python.exe ...`.
   (No `mkdir`/activate needed for tooling; create with `py -m venv .venv` and
   `pip install osmnx geopandas shapely`.)
-- Projection is **UTM** (EPSG:32618, zone 18N for NYC) for true meters — change
-  `CRS_METRIC` for other regions.
+- Projection is **UTM**, local zone auto-selected per map from longitude
+  (`utm_crs_for`) — true meters anywhere, no configuration.
 
 ## Module layout
 - [`osm_to_svg.py`](osm_to_svg.py) — the pipeline (fetch → project/rotate/clip →

@@ -95,7 +95,8 @@ palettes and switch the import in `osm_to_svg.py`.
 
 ## Notes
 
-- Projection is **UTM** (EPSG:32618, NYC zone 18N). For maps far from that zone,
-  set the correct UTM zone in `CRS_METRIC` or the map will be distorted.
+- Projection is **UTM**, with the correct local zone **auto-selected** from the
+  map's longitude — so maps anywhere on Earth project in true meters without
+  configuration.
 - Data © OpenStreetMap contributors (ODbL), fetched via
   [OSMnx](https://github.com/gboeing/osmnx).

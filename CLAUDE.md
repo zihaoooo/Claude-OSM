@@ -55,8 +55,8 @@ Quick reference — the two ways to frame a map:
 
 - **Edit style in `style.py`**, never hardcode colors/weights/density in emit
   functions.
-- **Projection is UTM** (`CRS_METRIC`, EPSG:32618 = NYC zone 18N). For other
-  regions, set the correct UTM zone or the map will be distorted/offset.
+- **Projection is UTM**, with the local zone auto-selected per map from its
+  longitude (`utm_crs_for`) — true meters anywhere, no configuration needed.
 - `--align` needs the **exact OSM street name** (beware near-matches).
 - **DMS → decimal**: West longitude and South latitude are negative.
 - **Generated SVGs go in `output/`** (auto-created by the pipeline; bare `-o`

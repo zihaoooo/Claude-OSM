@@ -132,8 +132,8 @@ orientation/clipping, not look.
 
 - **Exact OSM street names** matter for `--align`. Partial/fuzzy names miss or
   grab the wrong way (e.g. "Saint Nicholas Terrace" vs "Saint Nicholas Avenue").
-- **Projection is UTM** (EPSG:32618 for NYC) for true meters — not Web-Mercator.
-  For maps far from zone 18N, change `CRS_METRIC` to the right UTM zone.
+- **Projection is UTM** for true meters (not Web-Mercator); the local zone is
+  auto-selected per map from longitude (`utm_crs_for`), so any location works.
 - **DMS → decimal**: West longitude and South latitude are negative.
 - **osmnx 2.x `bbox_from_point`** tuple order: a historical snag noted in
   BUILD_SPEC; not present in osmnx 2.1.0 but check if geometry comes out empty

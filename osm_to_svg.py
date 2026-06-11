@@ -36,7 +36,18 @@ from style import STYLE, TAGS, MAJOR_ROADS, HALFTONE, HATCH
 PAGE_W = 1200          # SVG width in px (fallback place+dist mode)
 LONG_SIDE_PX = 1400    # frame mode: fit the longer page dimension to this
 MARGIN = 40            # inner margin in px
-CRS_METRIC = "EPSG:32618"   # UTM zone 18N -- true meters for NYC
+
+
+def utm_crs_for(lon, lat):
+    """Pick the true-meter UTM CRS for a point, so maps anywhere project right.
+
+    The pipeline works in metric coordinates; using the *local* UTM zone (rather
+    than a fixed one) keeps distances/angles undistorted no matter where the map
+    is. Without this, anywhere far from a hardcoded zone comes out stretched and
+    offset. EPSG 326xx = northern hemisphere, 327xx = southern.
+    """
+    zone = int(math.floor((lon + 180) / 6) % 60) + 1
+    return f"EPSG:{(32600 if lat >= 0 else 32700) + zone}"
 
 
 # ----------------------------------------------------------------------------
@@ -129,11 +140,11 @@ def _principal_bearing(geoms):
     return math.degrees(math.atan2(vx, vy))
 
 
-def derive_bearing(poly4326, name):
+def derive_bearing(poly4326, name, crs):
     """Bearing of a named street *within poly4326*, deg clockwise from vertical.
 
     Fetches the street graph clipped to the polygon, keeps edges whose name
-    matches, projects to true UTM meters, and fits the dominant axis. Measuring
+    matches, projects to the local UTM, and fits the dominant axis. Measuring
     only inside the frame avoids bias from where the avenue curves outside it.
     """
     G = ox.graph_from_polygon(poly4326, network_type="all", truncate_by_edge=True)
@@ -141,7 +152,7 @@ def derive_bearing(poly4326, name):
     sel = edges[edges["name"].apply(lambda v: _exact_name(v, name))]
     if not len(sel):
         raise RuntimeError(f"No street named '{name}' found to align to.")
-    return _principal_bearing(sel.to_crs(CRS_METRIC).geometry)
+    return _principal_bearing(sel.to_crs(crs).geometry)
 
 
 def build_frame(corner1, corner2, rotate_arg, align_name):
@@ -152,11 +163,16 @@ def build_frame(corner1, corner2, rotate_arg, align_name):
       center  -- (cx, cy) metric rotation origin
       rbbox   -- (minx, miny, maxx, maxy) in the rotated metric frame
       poly4326-- shapely Polygon (lat/lon) covering the frame, for OSM queries
+      crs     -- the local UTM CRS chosen for this frame
     """
-    # Project both corners to metric.
+    # Choose the local UTM zone from the frame center so maps project right
+    # anywhere, then project both corners to it.
+    clat = (corner1[0] + corner2[0]) / 2
+    clon = (corner1[1] + corner2[1]) / 2
+    crs = utm_crs_for(clon, clat)
     pts = gpd.GeoSeries(
         [Point(lon, lat) for lat, lon in (corner1, corner2)], crs="EPSG:4326"
-    ).to_crs(CRS_METRIC)
+    ).to_crs(crs)
     (x1, y1), (x2, y2) = ((p.x, p.y) for p in pts)
     cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
 
@@ -171,7 +187,7 @@ def build_frame(corner1, corner2, rotate_arg, align_name):
         orig = [shp_rotate(Point(px, py), -angle, origin=(cx, cy))
                 for px, py in rcorners]
         poly = gpd.GeoSeries(
-            [Polygon([(p.x, p.y) for p in orig])], crs=CRS_METRIC
+            [Polygon([(p.x, p.y) for p in orig])], crs=crs
         ).to_crs("EPSG:4326").iloc[0]
         return rbbox, poly
 
@@ -179,16 +195,17 @@ def build_frame(corner1, corner2, rotate_arg, align_name):
         # Start from the corners' axis-aligned bbox, then refine against the
         # tilted frame so we align to the avenue *as displayed*.
         _, poly = frame_for(0.0)
-        angle = derive_bearing(poly, align_name)
+        angle = derive_bearing(poly, align_name, crs)
         for _ in range(2):
             _, poly = frame_for(angle)
-            angle = derive_bearing(poly, align_name)
+            angle = derive_bearing(poly, align_name, crs)
         print(f"  aligned '{align_name}' to vertical; rotating {angle:+.2f} deg")
     else:
         angle = float(rotate_arg)
 
     rbbox, poly4326 = frame_for(angle)
-    return {"angle": angle, "center": (cx, cy), "rbbox": rbbox, "poly4326": poly4326}
+    return {"angle": angle, "center": (cx, cy), "rbbox": rbbox,
+            "poly4326": poly4326, "crs": crs}
 
 
 def fetch_layers_frame(frame):
@@ -211,7 +228,15 @@ def fetch_layers_frame(frame):
 class Projector:
     """Reproject to metric CRS, then map metric bounds onto the SVG page."""
 
-    def __init__(self, layers, crs_metric="EPSG:3857"):
+    def __init__(self, layers, crs_metric=None):
+        # Default to the local UTM zone (true meters) picked from the data's
+        # lon/lat centroid, so place-mode maps anywhere project undistorted.
+        if crs_metric is None:
+            for v in layers.values():
+                if v is not None and len(v):
+                    minx, miny, maxx, maxy = v.to_crs("EPSG:4326").total_bounds
+                    crs_metric = utm_crs_for((minx + maxx) / 2, (miny + maxy) / 2)
+                    break
         self.crs_metric = crs_metric
         # Reproject every non-empty layer.
         for k, v in layers.items():
@@ -255,7 +280,7 @@ def transform_layers(layers, frame):
         if v is None or not len(v):
             out[k] = v
             continue
-        g = v.to_crs(CRS_METRIC)
+        g = v.to_crs(frame["crs"])
         g = g.set_geometry(g.rotate(angle, origin=(cx, cy)))
         try:
             g = gpd.clip(g, clip)
