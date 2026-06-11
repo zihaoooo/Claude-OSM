@@ -16,6 +16,7 @@ by hand. Nothing is rasterized.
 
 import argparse
 import math
+import os
 import numpy as np
 import osmnx as ox
 import geopandas as gpd
@@ -586,7 +587,8 @@ def main():
                     help="fit the longer page dimension to this many px")
     ap.add_argument("--scale", type=float, default=None,
                     help="px per meter (overrides --long-side)")
-    ap.add_argument("-o", "--out", default="map.svg")
+    ap.add_argument("-o", "--out", default="output/map.svg",
+                    help="output SVG path; bare filenames go in output/")
     args = ap.parse_args()
 
     if args.corner1 and args.corner2:
@@ -606,8 +608,14 @@ def main():
         proj = Projector(layers)
         svg = build_svg(proj)
 
-    with open(args.out, "w") as f:
+    # bare filenames (no directory component) default into output/
+    out_path = args.out
+    if not os.path.dirname(out_path):
+        out_path = os.path.join("output", out_path)
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w") as f:
         f.write(svg)
+    args.out = out_path
     print(f"Wrote {args.out}  ({proj.page_w:.0f} x {proj.page_h:.0f} px)")
 
 

@@ -106,8 +106,9 @@ renderer. `cairosvg` does NOT work on Windows (no cairo DLL) — don't rely on i
 Use the Claude_Preview MCP browser route:
 1. Ensure `index.html` (wraps the SVG in an `<img>`) and `.claude/launch.json`
    (a static `python -m http.server` config) exist — they're committed in this
-   repo. If the output filename differs from `stnicholas.svg`, point the
-   `<img src>` in `index.html` at it.
+   repo. SVGs are written to `output/` (auto-created, git-ignored). If the
+   output filename differs from `stnicholas.svg`, point the `<img src>` in
+   `index.html` at `output/<file>.svg`.
 2. `preview_start` the `static` server, then `preview_screenshot`.
 3. To reload after regenerating, bump the img src cache-buster via
    `preview_eval`: `document.querySelector('img').src='<file>.svg?'+Date.now()`.

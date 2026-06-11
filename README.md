@@ -40,7 +40,8 @@ on Windows, `.venv/bin/python` on macOS/Linux):
   --rotate auto --align "Saint Nicholas Avenue" -o stnicholas.svg
 ```
 
-Open `stnicholas.svg` in any web browser or vector editor.
+Bare output names land in `output/` (created automatically and git-ignored), so
+this writes `output/stnicholas.svg` — open it in any web browser or vector editor.
 
 ## Two ways to frame a map
 

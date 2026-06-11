@@ -1,5 +1,7 @@
 .venv/
 *.svg
+output/*
+!output/.gitkeep
 __pycache__/
 cache/
 preview.png

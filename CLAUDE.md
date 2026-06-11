@@ -59,9 +59,11 @@ Quick reference — the two ways to frame a map:
   regions, set the correct UTM zone or the map will be distorted/offset.
 - `--align` needs the **exact OSM street name** (beware near-matches).
 - **DMS → decimal**: West longitude and South latitude are negative.
+- **Generated SVGs go in `output/`** (auto-created by the pipeline; bare `-o`
+  filenames are placed there). The folder is gitignored except for `.gitkeep`.
 - **Commit after every change that yields a valid SVG.** `.venv/`, `*.svg`,
-  `cache/`, `__pycache__/`, preview PNGs are gitignored — commit source +
-  `style.py` + docs.
+  `output/`, `cache/`, `__pycache__/`, preview PNGs are gitignored — commit
+  source + `style.py` + docs.
 
 ## Previewing the SVG
 
