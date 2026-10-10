@@ -122,7 +122,13 @@ def main():
     ap.add_argument("--subtitle", default="")
     ap.add_argument("--credit", default="")
     ap.add_argument("--parking", action="append", default=[], metavar='"OSM Name"',
-                    help="draw a dashed parking lane 8 ft off the curbs along this street")
+                    help="parking along this street: a dashed lane 8 ft off straight curbs, and angled "
+                         "stalls in any parking lot beside it (leaning with the street's one-way direction)")
+    ap.add_argument("--stall-angle", type=float, default=55, help="angled stall lines, degrees off the curb")
+    ap.add_argument("--stall-depth", type=float, default=0,
+                    help="angle-park every --parking curb at this depth (ft) where no island sets the band")
+    ap.add_argument("--bus-stop", action="append", default=[], metavar='"lat,lon"',
+                    help="place bus stops here instead of the OSM nodes (repeatable)")
     ap.add_argument("--label", action="append", default=[], metavar='"OSM Name=TEXT"',
                     help="rename a street label; once any is given, only listed streets are labeled")
     ap.add_argument("-o", "--out", default="base_plan")
@@ -144,8 +150,11 @@ def main():
 
     curbs = socrata("5xvt-8cbk", "the_geom", bbox, tag)
     medians = socrata("ees7-4ufv", "the_geom", bbox, tag)
+    lots = socrata("7cgt-uhhz", "the_geom", bbox, tag)          # planimetric parking lots
     trees = socrata("hn5i-inap", "location", bbox, tag, "tpstructure='Full'", points=True)
     bldg, bus, streets = osm_layers(bbox, tag)
+    if a.bus_stop:
+        bus = gpd.GeoDataFrame(geometry=[Point(float(v.split(",")[1]), float(v.split(",")[0])) for v in a.bus_stop], crs=4326)
 
     c = gpd.GeoSeries([Point(lon, lat)], crs=4326).to_crs(2263).iloc[0]
     rot = a.align_bearing - 90          # CCW degrees that turn that bearing to page-right
@@ -186,8 +195,58 @@ def main():
     for g in on_sheet(medians):
         draw_line(g, color=LIGHT, lw=0.5)
     curb_geoms = on_sheet(curbs)
+    lot_geoms = on_sheet(lots)
+    lot_zone = unary_union(lot_geoms).buffer(2) if lot_geoms else None
     for g in curb_geoms:
         draw_line(g, color=GRAY, lw=0.7, solid_capstyle="round")
+
+    median_geoms = on_sheet(medians)
+    median_edges = unary_union([m.boundary for m in median_geoms]) if median_geoms else None
+
+    def angled_stalls(run, center, pname):
+        """If an island edge runs 12-30 ft off this curb (between curb and centerline),
+        the band between them is angled parking: draw stall lines across it."""
+        mid = run.interpolate(0.5, normalized=True)
+        piece = min(getattr(center, "geoms", [center]), key=lambda c: c.distance(mid))
+        t = piece.project(mid)
+        q0, q1 = piece.interpolate(max(0, t - 5)), piece.interpolate(min(piece.length, t + 5))
+        fx, fy = q1.x - q0.x, q1.y - q0.y; fl = math.hypot(fx, fy); fx, fy = fx / fl, fy / fl
+        near = piece.interpolate(t)
+        nx, ny = -fy, fx                                   # unit normal pointing from curb to centerline
+        if (near.x - mid.x) * nx + (near.y - mid.y) * ny < 0:
+            nx, ny = -nx, -ny
+        # nearest island edge parallel to this curb, 8-30 ft off it on the centerline side
+        rx0, ry0 = run.coords[0]; rx1, ry1 = run.coords[-1]
+        ra = math.atan2(ry1 - ry0, rx1 - rx0)
+        depth = None
+        for edge in ([] if median_edges is None else getattr(median_edges, "geoms", [median_edges])):
+            pts = list(edge.coords)
+            for e0, e1 in zip(pts, pts[1:]):
+                seg = LineString([e0, e1])
+                if seg.length < 5 or abs(math.sin(math.atan2(e1[1] - e0[1], e1[0] - e0[0]) - ra)) > 0.1:
+                    continue
+                d = seg.distance(mid)
+                sm = seg.interpolate(0.5, normalized=True)
+                side = (sm.x - mid.x) * nx + (sm.y - mid.y) * ny
+                if 8 <= d <= 30 and side > 0 and run.distance(sm) < d + 40:
+                    depth = d if depth is None else min(depth, d)
+        if depth is None:
+            if not a.stall_depth:
+                return False
+            depth = a.stall_depth
+        th = math.radians(a.stall_angle)
+        # from the island toward the curb the stall leans forward with traffic
+        dx, dy = -nx * math.sin(th) + fx * math.cos(th), -ny * math.sin(th) + fy * math.cos(th)
+        far = run.offset_curve(depth) if run.offset_curve(depth).distance(near) < run.offset_curve(-depth).distance(near) else run.offset_curve(-depth)
+        band = Polygon(list(run.coords) + list(far.coords)[::-1]).buffer(0.01)
+        step = 9 / math.sin(th)
+        n = int(run.length / step) + 2
+        for i in range(-2, n + 2):
+            b = far.interpolate(i * step)
+            ln = LineString([(b.x - dx * 60, b.y - dy * 60), (b.x + dx * 60, b.y + dy * 60)]).intersection(band)
+            if not ln.is_empty and ln.length > 4:
+                draw_line(ln, color=LIGHT, lw=0.5)
+        return True
 
     # parking lanes: straight curb runs parallel to and near a named street,
     # offset 8 ft toward its centerline, dashed
@@ -219,9 +278,12 @@ def main():
                     elif run:
                         line = LineString([run[0][0]] + [q for _, q in run])
                         if line.length > 25:
-                            sides = [line.offset_curve(8), line.offset_curve(-8)]
-                            lane = min(sides, key=lambda x: x.distance(center))
-                            draw_line(lane, color=LIGHT, lw=0.5, ls=(0, (4, 3)))
+                            if not angled_stalls(line, center, pname):
+                                sides = [line.offset_curve(8), line.offset_curve(-8)]
+                                lane = min(sides, key=lambda x: x.distance(center))
+                                if lot_zone is not None:
+                                    lane = lane.difference(lot_zone)   # the lot draws its own stalls
+                                draw_line(lane, color=LIGHT, lw=0.5, ls=(0, (4, 3)))
                         run = []
 
     # trees: trunk dot + canopy circle sized from DBH (crown diameter ~ 1.5 ft per inch DBH, 8-40 ft)
@@ -235,6 +297,35 @@ def main():
         rad = max(8, min(40, 1.5 * dbh)) / 2
         ax.add_patch(Circle((g.x, g.y), rad, fill=False, ec=LIGHT, lw=0.5, ls=(0, (2, 2))))
         ax.add_patch(Circle((g.x, g.y), 0.6, fc=GRAY, ec="none"))
+    # angled stalls: lines across each lot beside a --parking street, leaning forward
+    # in the street's travel direction (OSM way order = direction for one-ways)
+    for pname in a.parking:
+        pieces = [g for (_, r), g in zip(streets.iterrows(), prep(streets)) if g is not None and r["name"] == pname]
+        pieces = [q for g in pieces for q in getattr(g, "geoms", [g]) if isinstance(q, LineString)]
+        for lot in lot_geoms:
+            if not pieces:
+                break
+            cen = lot.centroid
+            piece = min(pieces, key=lambda c: c.distance(cen))
+            if piece.distance(cen) > 60:
+                continue
+            draw_line(lot, color=LIGHT, lw=0.5)
+            t = piece.project(cen)
+            q0, q1 = piece.interpolate(max(0, t - 5)), piece.interpolate(min(piece.length, t + 5))
+            fx, fy = q1.x - q0.x, q1.y - q0.y; fl = math.hypot(fx, fy); fx, fy = fx / fl, fy / fl
+            near = piece.interpolate(t)
+            nx, ny = -fy, fx
+            if (cen.x - near.x) * nx + (cen.y - near.y) * ny < 0:
+                nx, ny = -nx, -ny
+            th = math.radians(a.stall_angle)
+            dx, dy = fx * math.cos(th) + nx * math.sin(th), fy * math.cos(th) + ny * math.sin(th)
+            step = 9 / math.sin(th)                     # 9 ft stalls, measured square to the stall
+            for i in range(-40, 41):
+                ox, oy = cen.x + fx * step * i, cen.y + fy * step * i
+                ln = LineString([(ox - dx * 80, oy - dy * 80), (ox + dx * 80, oy + dy * 80)]).intersection(lot)
+                if not ln.is_empty:
+                    draw_line(ln, color=LIGHT, lw=0.5)
+
     # street names: one label per name, on its longest visible centerline piece
     best = {}
     for (_, r), g in zip(streets.iterrows(), prep(streets)):
