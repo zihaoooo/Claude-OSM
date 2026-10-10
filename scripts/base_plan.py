@@ -132,6 +132,7 @@ def main():
                          "default: OSM way direction")
     ap.add_argument("--note", action="append", default=[], metavar='"lat,lon|TEXT|OSM street"',
                     help="a light area label at lat,lon, run parallel to the named street (repeatable)")
+    ap.add_argument("--centerlines", action="store_true", help="draw faint OSM street centerlines")
     ap.add_argument("--bus-stop", action="append", default=[], metavar='"lat,lon"',
                     help="place bus stops here instead of the OSM nodes (repeatable)")
     ap.add_argument("--label", action="append", default=[], metavar='"OSM Name=TEXT"',
@@ -361,9 +362,10 @@ def main():
                 if not ln.is_empty:
                     draw_line(ln, color=LIGHT, lw=0.5)
 
-    # street centerlines: faint dash-dot so roadways read as streets
-    for g in on_sheet(streets):
-        draw_line(g, color=LIGHT, lw=0.45, ls=(0, (8, 3, 1.5, 3)))
+    # street centerlines (off by default: they read as lane lines, which no dataset here provides)
+    if a.centerlines:
+        for g in on_sheet(streets):
+            draw_line(g, color=LIGHT, lw=0.45, ls=(0, (8, 3, 1.5, 3)))
 
     # street names: one label per name, on its longest visible centerline piece
     best = {}
