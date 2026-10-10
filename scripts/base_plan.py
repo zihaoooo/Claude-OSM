@@ -114,6 +114,8 @@ def main():
     ap.add_argument("--name", default="Site")
     ap.add_argument("--subtitle", default="")
     ap.add_argument("--credit", default="")
+    ap.add_argument("--label", action="append", default=[], metavar='"OSM Name=TEXT"',
+                    help="rename a street label; once any is given, only listed streets are labeled")
     ap.add_argument("-o", "--out", default="base_plan")
     a = ap.parse_args()
 
@@ -196,14 +198,15 @@ def main():
         for part in getattr(g, "geoms", [g]):
             if isinstance(part, LineString) and part.length > best.get(r["name"], (0,))[0]:
                 best[r["name"]] = (part.length, part)
+    relabel = dict(x.split("=", 1) for x in a.label)
     for name, (length, line) in best.items():
-        if length < 40:
+        if length < 40 or (relabel and name not in relabel):
             continue
         p = line.interpolate(0.5, normalized=True)
         q = line.interpolate(min(1, 0.5 + 10 / length), normalized=True)
         ang = math.degrees(math.atan2(q.y - p.y, q.x - p.x))
         ang = ang - 180 if ang > 90 else ang + 180 if ang < -90 else ang
-        ax.text(p.x, p.y, short(name), fontsize=6.5, color=LIGHT, ha="center", va="center",
+        ax.text(p.x, p.y, relabel.get(name, short(name)), fontsize=6.5, color=LIGHT, ha="center", va="center",
                 rotation=ang, rotation_mode="anchor", family=FONT, weight="bold")
     for g in on_sheet(bus):
         ax.text(g.x, g.y, "BUS", fontsize=5, color=GRAY, ha="center", va="center", family=FONT,
