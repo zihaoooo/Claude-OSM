@@ -383,6 +383,7 @@ def main():
         q = line.interpolate(min(1, 0.5 + 10 / length), normalized=True)
         ang = math.degrees(math.atan2(q.y - p.y, q.x - p.x))
         ang = ang - 180 if ang > 90 else ang + 180 if ang < -90 else ang
+        ang = ang + 180 if ang < -80 else ang      # near-vertical labels all read bottom to top
         ax.text(p.x, p.y, relabel.get(name, short(name)), fontsize=6.5, color=LIGHT, ha="center", va="center",
                 rotation=ang, rotation_mode="anchor", family=FONT, weight="bold", zorder=5,
                 bbox=dict(boxstyle="square,pad=0.25", fc="white", ec="none"))
