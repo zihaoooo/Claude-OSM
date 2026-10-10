@@ -125,8 +125,11 @@ def main():
                     help="parking along this street: a dashed lane 8 ft off straight curbs, and angled "
                          "stalls in any parking lot beside it (leaning with the street's one-way direction)")
     ap.add_argument("--stall-angle", type=float, default=55, help="angled stall lines, degrees off the curb")
-    ap.add_argument("--stall-depth", type=float, default=0,
-                    help="angle-park every --parking curb at this depth (ft) where no island sets the band")
+    ap.add_argument("--stall-depth", type=float, default=18,
+                    help="depth (ft) of angled stalls nosed in against an island beside a --parking street")
+    ap.add_argument("--traffic-bearing", type=float, default=None,
+                    help="compass bearing of travel on the --parking street (sets the stall lean); "
+                         "default: OSM way direction")
     ap.add_argument("--bus-stop", action="append", default=[], metavar='"lat,lon"',
                     help="place bus stops here instead of the OSM nodes (repeatable)")
     ap.add_argument("--label", action="append", default=[], metavar='"OSM Name=TEXT"',
@@ -203,6 +206,8 @@ def main():
     median_geoms = on_sheet(medians)
     median_edges = unary_union([m.boundary for m in median_geoms]) if median_geoms else None
 
+    drawn_stalls = []
+
     def angled_stalls(run, center, pname):
         """If an island edge runs 12-30 ft off this curb (between curb and centerline),
         the band between them is angled parking: draw stall lines across it."""
@@ -211,6 +216,10 @@ def main():
         t = piece.project(mid)
         q0, q1 = piece.interpolate(max(0, t - 5)), piece.interpolate(min(piece.length, t + 5))
         fx, fy = q1.x - q0.x, q1.y - q0.y; fl = math.hypot(fx, fy); fx, fy = fx / fl, fy / fl
+        if a.traffic_bearing is not None:                  # travel direction in sheet space
+            tb = math.radians(90 - a.traffic_bearing + rot)
+            if fx * math.cos(tb) + fy * math.sin(tb) < 0:
+                fx, fy = -fx, -fy
         near = piece.interpolate(t)
         nx, ny = -fy, fx                                   # unit normal pointing from curb to centerline
         if (near.x - mid.x) * nx + (near.y - mid.y) * ny < 0:
@@ -219,6 +228,7 @@ def main():
         rx0, ry0 = run.coords[0]; rx1, ry1 = run.coords[-1]
         ra = math.atan2(ry1 - ry0, rx1 - rx0)
         depth = None
+        island_segs = []
         for edge in ([] if median_edges is None else getattr(median_edges, "geoms", [median_edges])):
             pts = list(edge.coords)
             for e0, e1 in zip(pts, pts[1:]):
@@ -230,22 +240,39 @@ def main():
                 side = (sm.x - mid.x) * nx + (sm.y - mid.y) * ny
                 if 8 <= d <= 30 and side > 0 and run.distance(sm) < d + 40:
                     depth = d if depth is None else min(depth, d)
+                    island_segs.append((d, seg))
         if depth is None:
-            if not a.stall_depth:
-                return False
-            depth = a.stall_depth
+            return False
         th = math.radians(a.stall_angle)
-        # from the island toward the curb the stall leans forward with traffic
+        # stalls nose in against the island's street-facing edge and reach --stall-depth
+        # into the street; entering from the street they lean forward with traffic
         dx, dy = -nx * math.sin(th) + fx * math.cos(th), -ny * math.sin(th) + fy * math.cos(th)
-        far = run.offset_curve(depth) if run.offset_curve(depth).distance(near) < run.offset_curve(-depth).distance(near) else run.offset_curve(-depth)
-        band = Polygon(list(run.coords) + list(far.coords)[::-1]).buffer(0.01)
+        def toward_center(dist):
+            o1, o2 = run.offset_curve(dist), run.offset_curve(-dist)
+            return o1 if o1.distance(near) < o2.distance(near) else o2
+        edge, far = toward_center(depth), toward_center(depth + a.stall_depth)
+        band = Polygon(list(edge.coords) + list(far.coords)[::-1]).buffer(0.01)
+        # only where the island actually runs, and never over another island
+        isl = unary_union([sg for dd, sg in island_segs if abs(dd - depth) < 1.5])
+        band = band.intersection(isl.buffer(a.stall_depth + 1, cap_style="flat"))
+        if median_geoms:
+            band = band.difference(unary_union(median_geoms))
         step = 9 / math.sin(th)
         n = int(run.length / step) + 2
         for i in range(-2, n + 2):
             b = far.interpolate(i * step)
             ln = LineString([(b.x - dx * 60, b.y - dy * 60), (b.x + dx * 60, b.y + dy * 60)]).intersection(band)
-            if not ln.is_empty and ln.length > 4:
-                draw_line(ln, color=LIGHT, lw=0.5)
+            if ln.is_empty or ln.length < 0.9 * a.stall_depth / math.sin(th):
+                continue                                   # partial stall: cut off by a corner
+            if median_edges is not None:                   # keep 3 ft clear of any other island edge (a nose or bulb)
+                clear = ln.buffer(3).difference(edge.buffer(2))
+                if clear.intersects(median_edges.difference(edge.buffer(2))):
+                    continue
+            m = ln.interpolate(0.5, normalized=True)
+            if any(m.distance(o) < 4 for o in drawn_stalls):
+                continue                                   # two curb pieces offered the same stall
+            drawn_stalls.append(m)
+            draw_line(ln, color=LIGHT, lw=0.5)
         return True
 
     # parking lanes: straight curb runs parallel to and near a named street,
@@ -284,6 +311,12 @@ def main():
                                 if lot_zone is not None:
                                     lane = lane.difference(lot_zone)   # the lot draws its own stalls
                                 draw_line(lane, color=LIGHT, lw=0.5, ls=(0, (4, 3)))
+                                # parallel stalls: a tick from curb to lane every 22 ft
+                                for j in range(1, int(line.length // 22)):
+                                    cp = line.interpolate(j * 22)
+                                    lp = lane.interpolate(lane.project(cp)) if not lane.is_empty else None
+                                    if lp is not None and cp.distance(lp) < 10:
+                                        draw_line(LineString([cp, lp]), color=LIGHT, lw=0.5)
                         run = []
 
     # trees: trunk dot + canopy circle sized from DBH (crown diameter ~ 1.5 ft per inch DBH, 8-40 ft)
