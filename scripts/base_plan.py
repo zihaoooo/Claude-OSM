@@ -437,7 +437,7 @@ def main():
     pg.text(W - m, y0 - 0.15, a.credit, fontsize=5, ha="right", color=GRAY, family=FONT)
 
     base = a.out if os.path.isabs(a.out) else os.path.join(OUT, a.out)
-    fig.savefig(base + ".pdf"); fig.savefig(base + ".svg"); fig.savefig(base + ".png", dpi=110)
+    fig.savefig(base + ".pdf"); fig.savefig(base + ".svg"); fig.savefig(base + ".png", dpi=110); fig.savefig(base + "_300.png", dpi=300)
     print("wrote", base + ".{pdf,svg,png}", f"| curbs {len(curbs)} medians {len(medians)} trees {len(trees)} buildings {len(bldg)} bus {len(bus)}")
     return ax
 
