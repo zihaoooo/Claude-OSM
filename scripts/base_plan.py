@@ -43,9 +43,9 @@ OUT = os.path.join(HERE, "output")
 UA = "Claude-OSM base_plan (github.com/zihaoooo/Claude-OSM)"
 
 # --- look: everything pale so pen reads on top --------------------------------
-GRAY = "#9a9a9a"      # curbs, building edges
-LIGHT = "#c4c4c4"     # canopies, medians, labels
-FILL = "#f3f3f3"      # building poke
+GRAY = "#444444"      # curbs, building edges (dark enough to read through two layers of trace)
+LIGHT = "#7a7a7a"     # canopies, medians, labels
+FILL = "#e2e2e2"      # building poke
 SITE = "#7a7a7a"      # the site outline, one step darker
 INK = "#333333"       # scale bar, north arrow, title
 FONT = "DejaVu Sans"
@@ -219,14 +219,14 @@ def main():
     for g in on_sheet(bldg):
         for part in getattr(g, "geoms", [g]):
             if isinstance(part, Polygon):
-                ax.add_patch(MplPolygon(list(part.exterior.coords), closed=True, fc=FILL, ec=GRAY, lw=0.5))
+                ax.add_patch(MplPolygon(list(part.exterior.coords), closed=True, fc=FILL, ec=GRAY, lw=0.7))
     for g in on_sheet(medians):
-        draw_line(g, color=LIGHT, lw=0.5)
+        draw_line(g, color=LIGHT, lw=0.6)
     curb_geoms = on_sheet(curbs)
     lot_geoms = on_sheet(lots)
     lot_zone = unary_union(lot_geoms).buffer(2) if lot_geoms else None
     for g in curb_geoms:
-        draw_line(g, color=GRAY, lw=0.7, solid_capstyle="round")
+        draw_line(g, color=GRAY, lw=0.9, solid_capstyle="round")
 
     median_geoms = on_sheet(medians)
     median_edges = unary_union([m.boundary for m in median_geoms]) if median_geoms else None
@@ -353,8 +353,8 @@ def main():
         except ValueError:
             dbh = 0
         rad = max(8, min(40, 1.5 * dbh)) / 2
-        ax.add_patch(Circle((g.x, g.y), rad, fill=False, ec=LIGHT, lw=0.5, ls=(0, (2, 2))))
-        ax.add_patch(Circle((g.x, g.y), 0.6, fc=GRAY, ec="none"))
+        ax.add_patch(Circle((g.x, g.y), rad, fill=False, ec=LIGHT, lw=0.6, ls=(0, (3, 2))))
+        ax.add_patch(Circle((g.x, g.y), 0.9, fc=GRAY, ec="none"))
     # angled stalls: lines across each lot beside a --parking street, leaning forward
     # in the street's travel direction (OSM way order = direction for one-ways)
     for pname in a.parking:
