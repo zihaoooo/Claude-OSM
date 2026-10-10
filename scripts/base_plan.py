@@ -361,6 +361,10 @@ def main():
                 if not ln.is_empty:
                     draw_line(ln, color=LIGHT, lw=0.5)
 
+    # street centerlines: faint dash-dot so roadways read as streets
+    for g in on_sheet(streets):
+        draw_line(g, color=LIGHT, lw=0.45, ls=(0, (8, 3, 1.5, 3)))
+
     # street names: one label per name, on its longest visible centerline piece
     best = {}
     for (_, r), g in zip(streets.iterrows(), prep(streets)):
@@ -378,7 +382,8 @@ def main():
         ang = math.degrees(math.atan2(q.y - p.y, q.x - p.x))
         ang = ang - 180 if ang > 90 else ang + 180 if ang < -90 else ang
         ax.text(p.x, p.y, relabel.get(name, short(name)), fontsize=6.5, color=LIGHT, ha="center", va="center",
-                rotation=ang, rotation_mode="anchor", family=FONT, weight="bold")
+                rotation=ang, rotation_mode="anchor", family=FONT, weight="bold", zorder=5,
+                bbox=dict(boxstyle="square,pad=0.25", fc="white", ec="none"))
     for spec in a.note:
         ll, text, sname = (spec.split("|") + ["", ""])[:3]
         la, lo = map(float, ll.split(","))
