@@ -132,6 +132,8 @@ def main():
                          "default: OSM way direction")
     ap.add_argument("--note", action="append", default=[], metavar='"lat,lon|TEXT|OSM street"',
                     help="a light area label at lat,lon, run parallel to the named street (repeatable)")
+    ap.add_argument("--aerial", action="store_true",
+                    help="aerial sheet: NYS orthoimagery in the same frame and scale, labels only, no line work")
     ap.add_argument("--centerlines", action="store_true", help="draw faint OSM street centerlines")
     ap.add_argument("--bus-stop", action="append", default=[], metavar='"lat,lon"',
                     help="place bus stops here instead of the OSM nodes (repeatable)")
@@ -185,6 +187,26 @@ def main():
     ax = fig.add_axes([m / W, (m + strip) / H, map_w / W, map_h / H])
     ax.set_xlim(-map_w * k / 2, map_w * k / 2); ax.set_ylim(-map_h * k / 2, map_h * k / 2)
     ax.set_aspect("equal"); ax.axis("off")
+
+    if a.aerial:
+        # NYS ITS orthoimagery (public), fetched square around the center in State Plane feet,
+        # then placed with the same translate + rotate as the vectors
+        import matplotlib.image as mpimg
+        from matplotlib.transforms import Affine2D
+        r = half_ft
+        url = ("https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapServer/export?"
+               + urllib.parse.urlencode({"bbox": f"{c.x - r},{c.y - r},{c.x + r},{c.y + r}", "bboxSR": 2263,
+                                         "imageSR": 2263, "size": "4000,4000", "format": "jpg", "f": "image"}))
+        from PIL import Image
+        src = Image.open(fetch(url, os.path.join(CACHE, f"{tag}_ortho.jpg"))).convert("RGB")
+        # the service upsamples ~1.3 ft imagery with nearest-neighbour; shrink back to the
+        # native grid, then enlarge smoothly so pixels don't print as blocks
+        native = max(64, round(src.width * (2 * r / src.width) / 1.3))
+        img = src.resize((native, native), Image.BOX).resize(src.size, Image.LANCZOS)
+        ax.imshow(img, extent=(-r, r, -r, r), transform=Affine2D().rotate_deg(rot) + ax.transData,
+                  interpolation="bilinear", zorder=0, clip_on=True)
+        empty = gpd.GeoDataFrame(geometry=[], crs=4326)
+        bldg = curbs = medians = lots = trees = empty      # labels only on the aerial
     pt = 72 / k  # points per foot, for sizing strokes in ground units
 
     def draw_line(g, **kw):
@@ -401,7 +423,7 @@ def main():
             q0, q1 = pc.interpolate(max(0, t - 5)), pc.interpolate(min(pc.length, t + 5))
             ang = math.degrees(math.atan2(q1.y - q0.y, q1.x - q0.x))
             ang = ang - 180 if ang > 90 else ang + 180 if ang < -90 else ang
-        ax.text(g.x, g.y, text, fontsize=6.5, color=LIGHT, ha="center", va="center", rotation=ang,
+        ax.text(g.x, g.y, text, fontsize=6.5, color=GRAY, ha="center", va="center", rotation=ang,
                 rotation_mode="anchor", family=FONT, weight="bold")
     for g in on_sheet(bus):
         ax.text(g.x, g.y, "BUS", fontsize=5, color=GRAY, ha="center", va="center", family=FONT,
