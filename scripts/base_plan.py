@@ -130,6 +130,8 @@ def main():
     ap.add_argument("--traffic-bearing", type=float, default=None,
                     help="compass bearing of travel on the --parking street (sets the stall lean); "
                          "default: OSM way direction")
+    ap.add_argument("--note", action="append", default=[], metavar='"lat,lon|TEXT|OSM street"',
+                    help="a light area label at lat,lon, run parallel to the named street (repeatable)")
     ap.add_argument("--bus-stop", action="append", default=[], metavar='"lat,lon"',
                     help="place bus stops here instead of the OSM nodes (repeatable)")
     ap.add_argument("--label", action="append", default=[], metavar='"OSM Name=TEXT"',
@@ -377,6 +379,22 @@ def main():
         ang = ang - 180 if ang > 90 else ang + 180 if ang < -90 else ang
         ax.text(p.x, p.y, relabel.get(name, short(name)), fontsize=6.5, color=LIGHT, ha="center", va="center",
                 rotation=ang, rotation_mode="anchor", family=FONT, weight="bold")
+    for spec in a.note:
+        ll, text, sname = (spec.split("|") + ["", ""])[:3]
+        la, lo = map(float, ll.split(","))
+        g = prep(gpd.GeoDataFrame(geometry=[Point(lo, la)], crs=4326))[0]
+        if g is None:
+            continue
+        ang = 0
+        pieces = [q for (_, r), q in zip(streets.iterrows(), prep(streets)) if q is not None and r["name"] == sname]
+        pieces = [x for q in pieces for x in getattr(q, "geoms", [q]) if isinstance(x, LineString)]
+        if pieces:
+            pc = min(pieces, key=lambda c: c.distance(g)); t = pc.project(g)
+            q0, q1 = pc.interpolate(max(0, t - 5)), pc.interpolate(min(pc.length, t + 5))
+            ang = math.degrees(math.atan2(q1.y - q0.y, q1.x - q0.x))
+            ang = ang - 180 if ang > 90 else ang + 180 if ang < -90 else ang
+        ax.text(g.x, g.y, text, fontsize=6.5, color=LIGHT, ha="center", va="center", rotation=ang,
+                rotation_mode="anchor", family=FONT, weight="bold")
     for g in on_sheet(bus):
         ax.text(g.x, g.y, "BUS", fontsize=5, color=GRAY, ha="center", va="center", family=FONT,
                 bbox=dict(boxstyle="square,pad=0.15", fc="white", ec=LIGHT, lw=0.4))
