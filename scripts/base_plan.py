@@ -144,7 +144,7 @@ def main():
     W, H = map(float, a.sheet.lower().split("x"))
     k = a.scale_ft                      # ft per page inch
     m = 0.4                             # page margin, in
-    strip = 0.55                        # title strip height, in
+    strip = 0.9                         # title strip height, in (incl. a clear gap under the map)
     map_w, map_h = W - 2 * m, H - 2 * m - strip
     tag = f"base_{lat:.5f}_{lon:.5f}"
     os.makedirs(CACHE, exist_ok=True); os.makedirs(OUT, exist_ok=True)
@@ -410,11 +410,11 @@ def main():
     # page-level furniture (in page inches)
     pg = fig.add_axes([0, 0, 1, 1]); pg.set_xlim(0, W); pg.set_ylim(0, H); pg.axis("off"); pg.patch.set_alpha(0)
     pg.add_patch(plt.Rectangle((m, m + strip), map_w, map_h, fill=False, ec=LIGHT, lw=0.5))
-    pg.plot([m, W - m], [m + strip - 0.08] * 2, color=INK, lw=0.6)
+    pg.plot([m, W - m], [m + strip - 0.25] * 2, color=INK, lw=0.6)
 
     # scale bar 0-10-20-40 ft (or scaled to k)
     unit = k / 2
-    x0, y0 = m + 0.15, m + 0.22
+    x0, y0 = m + 0.15, m + 0.2
     for i, (a0, a1) in enumerate([(0, 0.5), (0.5, 1), (1, 2)]):
         pg.add_patch(plt.Rectangle((x0 + a0, y0), a1 - a0, 0.07, fc=INK if i % 2 == 0 else "white", ec=INK, lw=0.5))
     for v in (0, 0.5, 1, 2):
