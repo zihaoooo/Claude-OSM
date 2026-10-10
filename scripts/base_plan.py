@@ -35,6 +35,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Polygon as MplPolygon, FancyArrow
 from shapely import affinity
 from shapely.geometry import shape, Point, Polygon, LineString, box
+from shapely.ops import unary_union
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(HERE, "cache")
@@ -58,12 +59,18 @@ def fetch(url, path):
     return path
 
 
-def socrata(dataset, col, bbox, tag, extra=""):
+def socrata(dataset, col, bbox, tag, extra="", points=False):
+    """Features touching the box. Lines/polygons use intersects() so long curbs that
+    run past the box edge still come back (within_box only returns ones fully inside)."""
     s, w, n, e = bbox
-    where = f"within_box({col},{n},{w},{s},{e})" + (f" AND {extra}" if extra else "")
+    if points:
+        where = f"within_box({col},{n},{w},{s},{e})"
+    else:
+        where = f"intersects({col},'POLYGON(({w} {s},{e} {s},{e} {n},{w} {n},{w} {s}))')"
+    where += f" AND {extra}" if extra else ""
     q = urllib.parse.urlencode({"$where": where, "$limit": 50000})
     path = fetch(f"https://data.cityofnewyork.us/resource/{dataset}.geojson?{q}",
-                 os.path.join(CACHE, f"{tag}_{dataset}.geojson"))
+                 os.path.join(CACHE, f"{tag}_{dataset}_v2.geojson"))
     with open(path, encoding="utf-8") as f:
         feats = json.load(f)["features"]
     rows = [{**(ft["properties"] or {}), "geometry": shape(ft["geometry"])} for ft in feats if ft["geometry"]]
@@ -114,6 +121,8 @@ def main():
     ap.add_argument("--name", default="Site")
     ap.add_argument("--subtitle", default="")
     ap.add_argument("--credit", default="")
+    ap.add_argument("--parking", action="append", default=[], metavar='"OSM Name"',
+                    help="draw a dashed parking lane 8 ft off the curbs along this street")
     ap.add_argument("--label", action="append", default=[], metavar='"OSM Name=TEXT"',
                     help="rename a street label; once any is given, only listed streets are labeled")
     ap.add_argument("-o", "--out", default="base_plan")
@@ -135,7 +144,7 @@ def main():
 
     curbs = socrata("5xvt-8cbk", "the_geom", bbox, tag)
     medians = socrata("ees7-4ufv", "the_geom", bbox, tag)
-    trees = socrata("hn5i-inap", "location", bbox, tag, "tpstructure='Full'")
+    trees = socrata("hn5i-inap", "location", bbox, tag, "tpstructure='Full'", points=True)
     bldg, bus, streets = osm_layers(bbox, tag)
 
     c = gpd.GeoSeries([Point(lon, lat)], crs=4326).to_crs(2263).iloc[0]
@@ -176,8 +185,44 @@ def main():
                 ax.add_patch(MplPolygon(list(part.exterior.coords), closed=True, fc=FILL, ec=GRAY, lw=0.5))
     for g in on_sheet(medians):
         draw_line(g, color=LIGHT, lw=0.5)
-    for g in on_sheet(curbs):
+    curb_geoms = on_sheet(curbs)
+    for g in curb_geoms:
         draw_line(g, color=GRAY, lw=0.7, solid_capstyle="round")
+
+    # parking lanes: straight curb runs parallel to and near a named street,
+    # offset 8 ft toward its centerline, dashed
+    for pname in a.parking:
+        cl = [g for (_, r), g in zip(streets.iterrows(), prep(streets)) if g is not None and r["name"] == pname]
+        if not cl:
+            continue
+        center = unary_union(cl)
+        for g in curb_geoms:
+            for part in getattr(g, "geoms", [g]):
+                if not isinstance(part, LineString):
+                    continue
+                run = []
+                pts = list(part.coords)
+                for p0, p1 in list(zip(pts, pts[1:])) + [(None, None)]:
+                    ok = False
+                    if p0 is not None:
+                        seg = LineString([p0, p1]); mid = seg.interpolate(0.5, normalized=True)
+                        d = center.distance(mid)
+                        if 8 < d < 45 and seg.length > 0.5:
+                            # parallel test against the nearest centerline piece
+                            piece = min(getattr(center, "geoms", [center]), key=lambda c: c.distance(mid))
+                            t = piece.project(mid)
+                            q0, q1 = piece.interpolate(max(0, t - 5)), piece.interpolate(min(piece.length, t + 5))
+                            a1 = math.atan2(p1[1] - p0[1], p1[0] - p0[0]); a2 = math.atan2(q1.y - q0.y, q1.x - q0.x)
+                            ok = abs(math.sin(a1 - a2)) < 0.12
+                    if ok:
+                        run.append((p0, p1))
+                    elif run:
+                        line = LineString([run[0][0]] + [q for _, q in run])
+                        if line.length > 25:
+                            sides = [line.offset_curve(8), line.offset_curve(-8)]
+                            lane = min(sides, key=lambda x: x.distance(center))
+                            draw_line(lane, color=LIGHT, lw=0.5, ls=(0, (4, 3)))
+                        run = []
 
     # trees: trunk dot + canopy circle sized from DBH (crown diameter ~ 1.5 ft per inch DBH, 8-40 ft)
     for (_, r), g in zip(trees.iterrows(), prep(trees)):
